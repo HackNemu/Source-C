@@ -1,0 +1,328 @@
+#pragma warning(disable:4996)
+#include<stdio.h>
+#include<string.h>
+#include<stdlib.h>
+
+#define BUF_SIZE 2500//bufサイズ
+#define FLAG_ON 1
+#define FLAG_OFF 0
+#define INPUT_FILE_ERR 0x01 //入力ファイルパスエラー
+#define OUTPUT_FILE_ERR 0x02//出力ファイルパスエラー
+#define FILE_ERR 0x04		//ファイル数のエラー
+#define ETC_ERR 0x80		//その他のエラー
+
+typedef struct {
+	char write_flag;		//ファイル上書きフラグ
+	char *input_filename;	//入力ファイルパス
+	char *output_filename;	//出力ファイルパス
+	char usage_flag;		//使い方表示のフラグ
+	char loopy;				//行数
+} opt_s;
+
+unsigned char srec_to_bin(unsigned char* buf);
+void analysis_srec_to_bin(unsigned char* buf, opt_s* ops,FILE *fpw);
+char opt_analysis(char argc, char *argv[], opt_s *opt);
+
+
+int main(int argc, char* argv[]) {
+
+	unsigned char buf[BUF_SIZE];//テキストファイルを入れるbuf
+	char result;//エラコード返り値
+
+	FILE *fp_r;//読み込みファイルポインタ
+	FILE *fp_w;//書き込みファイルポインタ
+
+	//構造体の初期化
+	opt_s opts;
+	opts.input_filename = 0;
+	opts.output_filename = 0;
+	opts.usage_flag = 0;
+	opts.write_flag = 0;
+	opts.loopy = 0;
+
+	//ファイルポインタ初期化
+	fp_w = 0;
+	fp_r = 0;
+
+	//オプション処理
+	result = opt_analysis(argc, argv, &opts);
+
+	//エラーがなければ　または　使い方表示のフラグが立ってなければ
+	if (result != 0 || opts.usage_flag == FLAG_ON) {
+		if (result&INPUT_FILE_ERR)
+			fprintf(stderr, "INPUT_FILEが複数あります\n");
+		if (result&OUTPUT_FILE_ERR)
+			fprintf(stderr, "OUTPUT_FILEが複数あります\n");
+		if (result&FILE_ERR)
+			fprintf(stderr, "FILEが複数あります");
+		if (result&ETC_ERR)
+			fprintf(stderr, "予期せぬエラーです\n");
+
+		fprintf(stderr, "Sレコードコマンドの使い方\n");
+		fprintf(stderr, "C:¥Users¥m-hoshi>srec2bin/?\n");
+		fprintf(stderr, "Syntax: srec2bin[<opts>][[/ i[=]]<inpath>][[/ o[=]]<outpath>][<opts>]\n");
+		fprintf(stderr, "Function : converts S record to binary file\n");
+		fprintf(stderr, "Options :\n");
+		fprintf(stderr, "/ r 出力ファイルが存在するとき、強制的に上書きをする。\n");
+		fprintf(stderr, "/ i[=] 入力ファイルパス(デフォルト = stdin)\n");
+		fprintf(stderr, "/ o[=] 出力ファイルパス(デフォルト = stdout)\n");
+		fprintf(stderr, "/ ? 使い方の表示\n");
+	}
+	else {
+
+		if (opts.output_filename != 0) {			//出力パスがあれば
+			fp_w = fopen(opts.output_filename, "r");//一度開いてみる
+
+			if (fp_w != NULL) {//ファイルが存在していれば
+				fclose(fp_w);//一度ファイルを閉じて
+
+				if (opts.write_flag != FLAG_ON) {//強制上書きでなければ
+					fprintf(stderr, "ファイルが既に存在しています");
+					exit(3);	//既存のファイルを壊してしまうため強制終了
+				}
+			}
+			
+
+			//本来elseですべきだがexitで終了するからelseいらないというコードを書いてよいのか
+
+			fp_w = fopen(opts.output_filename, "wb");//ファイルをバイナリー書き込みでオープン
+			if (fp_w == NULL) {
+				("ファイルが開けませんでした\n");
+				exit(2);
+			}
+		}
+		else {//デフォルト
+			fp_w = stdout;
+		}
+
+		if (opts.input_filename != 0) {//入力パスがあれば
+			fp_r = fopen(opts.input_filename, "r");//読み込みモード
+
+			if (fp_r != NULL) {		   //ファイルが開ければ
+				while (fgets(buf, BUF_SIZE, fp_r) != NULL) {//1行ずつファイルを読み込む
+					analysis_srec_to_bin(buf, &opts, fp_w); //sレコード解析
+				}
+			}
+			else {
+				fprintf(stderr, "ファイルが見つかりません\n");
+				exit(1);//強制終了
+
+			}
+		}
+		else {//デフォルト
+			fp_r = stdin;
+		}
+	}
+
+	if(fp_w!=NULL)
+		fclose(fp_w);//開いていたら閉じる
+
+	if(fp_r!=NULL)
+		fclose(fp_r);//開いていたら閉じる
+}
+//Sレコード解析
+void analysis_srec_to_bin(unsigned char *buf, opt_s* opt, FILE *fpw) {
+	
+	int cnt_buf;//どこまで進んでいるか数える
+	int addr_len;//アドレスのバイト数
+	//int save_cnt;//どこまで進んでいるかの保存
+	unsigned char data_bin;//バイナリーデータが入る
+	unsigned char data_size;//データ長
+	unsigned char record_size;//レコード長
+	unsigned char check_sum;//チェックサム
+
+	char type_s;//typeをホールドする
+
+	cnt_buf = 0;
+	check_sum = 0;
+	addr_len = 0;
+	data_bin = 0;
+
+	opt->loopy++;//行数増やす
+
+	if (buf[cnt_buf] == 'S') {//最初の文字がSだったら＝Sレコードということ
+		cnt_buf++;//一つ進めて次を見る
+
+		type_s = buf[cnt_buf];//typeをしまっておく
+		//アドレスの数をSのタイプで分ける
+		switch (type_s) {
+
+		case '0':
+		case '1':
+		case '9':
+			addr_len = 2;//単位はバイト
+			break;
+
+		case '2':
+		case '8':
+			addr_len = 3;
+			break;
+
+		case '3':
+		case '7':
+			addr_len = 4;
+			break;
+
+		default:
+			fprintf(stderr, "サポートしていないSレコードの形式です");
+			break;
+		}
+		cnt_buf++;//次に進む
+
+		//レコード長
+		record_size = srec_to_bin(buf + cnt_buf);//レコード長だけを変換して残りのバイト数を求めたい 関数に配列を直接渡して　&buf[cnt_buf]でもできた。
+		check_sum += record_size;			   //変換したからチェックサム
+		cnt_buf += 2;						   //1バイト読んだから２つ進める
+
+		//アドレス
+		for (int numx = 0; numx < addr_len; numx++) {//アドレスのバイト数回す
+			check_sum += srec_to_bin(buf + cnt_buf); //変換したからチェックサム
+			cnt_buf += 2;							 //1バイト読んだから２つ進める
+		}
+
+		data_size = record_size - (addr_len + 1);//{データサイズ=レコード長-(アドレス+チェックサム)}
+
+
+		//データ
+		//save_cnt = cnt_buf;//回す前にセーブ
+		/*
+		//16進数
+		for (int num_x = 0; num_x < data_size; num_x++) {
+			data_bin = srec_to_bin(buf + cnt_buf);
+			check_sum += data_bin;//変換したからチェックサム
+
+			if (opt->output_filename != 0) {
+				fprintf(fpw, "%x", data_bin);
+			}
+			else {
+				fprintf(stdout, "%x", data_bin);//変換したものを印字 印字先は出力ファイルパスで決まる
+			}
+			cnt_buf += 2;//1バイト読んだら二つ進める
+		}
+		*/
+
+		//cnt_buf = save_cnt;//セーブをロードする
+		//文字
+		for (int num_x = 0; num_x < data_size; num_x++) {
+			data_bin = srec_to_bin(buf + cnt_buf);
+			check_sum += data_bin;//変換したからチェックサム
+
+
+			fprintf(fpw, "%c", data_bin);
+			cnt_buf += 2;//1バイト読んだら二つ進める
+		}
+
+		//チェックサム
+		check_sum += srec_to_bin(buf + cnt_buf);//チェックサム自身を足す
+
+		if (check_sum != 0xff) {//0xffでなければ
+			fprintf(stderr, "\n");
+			fprintf(stderr, "%d行目がチェックサムエラー %s", opt->loopy, buf);
+		}
+	}
+	else {
+		fprintf(stderr, "Sレコードではありません");
+	}
+}
+
+//この関数は変換するだけ、元の変数は書き換えない　新しく変数作る
+unsigned char srec_to_bin(unsigned char *buf) {
+	unsigned char bin_high;			//上位ビット
+	unsigned char bin_low;			//下位ビット
+	unsigned char bin_high_low;//変換した16進数
+
+	//変換部
+	//2文字を上位4と下位4に分けて変換
+	bin_high=buf[0] -'0';
+	if (bin_high>9) {			//引いた結果が10以上であれば,9を超えたら
+		bin_high-= ('A' - ':');
+	}
+
+	bin_low=buf[1] -'0';
+	if (bin_low>9) {
+		bin_low-= ('A' - ':');
+	}
+
+	//4ビット左にシフトして上位ビットとして一バイト先の文字コードと合体させる
+	bin_high_low = (bin_high<< 4) | bin_low;
+
+	return bin_high_low;
+}
+
+
+//オプション解析
+
+char opt_analysis(char argc, char *argv[], opt_s *opt) {
+	int cnt_ana;
+	char err;
+
+	//FILE *fp_in;
+	//FILE *fp_out;
+
+	err = 0;//初期化
+
+	for (cnt_ana = 1; cnt_ana < argc; cnt_ana++) {
+		if (*argv[cnt_ana] == '/') {//1文字目が/なら
+			switch (*(argv[cnt_ana] + 1)) {
+
+				//出力ファイルの強制上書き
+			case 'r':
+			case 'R':
+				opt->write_flag = FLAG_ON;
+				break;
+
+				//入力ファイルパス 要は入力先　dデフォルトはキーボートから　読み込むファイル名のある場所
+			case 'i':
+			case 'I':
+				if (opt->input_filename == 0) {//ファイルが入っていなければ
+					if (*(argv[cnt_ana] + 2) == '=') {
+						opt->input_filename = argv[cnt_ana] + 3;
+					}
+					else {
+						opt->input_filename = argv[cnt_ana] + 2;
+					}
+				}
+				else {
+					err |= INPUT_FILE_ERR;
+				}
+				break;
+
+				//出力ファイルパス　要は出力先　書き込むファイル名のある場所
+			case 'o':
+			case 'O':
+				if (opt->output_filename == 0) {
+					if (*(argv[cnt_ana] + 2) == '=') {
+						opt->output_filename = argv[cnt_ana] + 3;
+					}
+					else {
+						opt->output_filename = argv[cnt_ana] + 2;
+					}
+				}
+				else {
+					err |= OUTPUT_FILE_ERR;
+				}
+				break;
+
+				//使い方の表示フラグ
+			case '?':
+				opt->usage_flag = FLAG_ON;
+				break;
+
+			default:
+				err |= ETC_ERR;
+			}
+		}
+		else {//ファイル名ということなので
+			if (opt->input_filename == 0){//ファイル名が入っていなければ
+				opt->input_filename = argv[cnt_ana];
+			}
+			else if(opt->output_filename==0){
+				opt->output_filename = argv[cnt_ana];
+			}
+			else {//どちらにもすでに入っていたら
+				err |= FILE_ERR;
+			}
+		}
+	}
+	return err;
+}

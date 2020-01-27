@@ -1,0 +1,104 @@
+//五嶋隆文
+#pragma warning(disable:4996)
+#include<stdio.h>
+#include<stdlib.h>
+#include<time.h>
+
+#define MINISIZE 0
+#define MAXSIZE 9
+
+
+//プロトタイプ宣言
+void shuffle(int hairetu[]);			//シャッフル関数宣言
+void prt_line(char lineStr[], int num); //罫線関数宣言
+
+//main開始
+void main(void) {
+
+	//変数定義ここから	
+	int tate;				//縦の変数定義
+	int yoko;				//横の変数定義
+	int waku;				//scanfで読んだ値をいれる変数定義
+	int row_tbl[MAXSIZE] = { 1,2,3,4,5,6,7,8,9 };	//縦の配列
+	int col_tbl[MAXSIZE] = { 1,2,3,4,5,6,7,8,9 };	//横の配列
+	
+	char line[] = "+---";	//罫線の定義
+	//変数定義ここまで
+
+	srand((unsigned)time(NULL));//乱数を現在の時刻を使って求める際の宣言
+
+	while (-1) {	//無限ループ
+
+		//配列のシャッフル
+		shuffle(row_tbl);//縦配列のシャッフル
+		shuffle(col_tbl);//横配列のシャッフル
+
+
+		//画面に出力される文字
+		printf("九九の表の枠数(2～9)を入力してください 0は終了:");
+		scanf("%d",&waku);//入力した数を受け取る
+		printf("\n");
+
+		/*条件分岐
+		入力が0の場合ループ解除
+		入力が2から9の場合表を出力*/
+
+		if (waku == 0) {//入力が0の場合
+			break;
+		}
+		if (waku >= 2 && waku <=MAXSIZE){//入力が2から9の場合
+			
+			prt_line(line, waku); 
+			printf("|   ");											//空白出力
+
+			for (yoko = MINISIZE; yoko < waku; yoko++){
+				printf("|%3d", col_tbl[yoko]);						//見出し横出力
+			}
+			printf("|\n");
+
+			for (tate = MINISIZE; tate < waku; tate++) {			//for文　縦列のルール
+				prt_line(line, waku);
+				printf("|%3d", row_tbl[tate]);					    //見出し縦出力
+
+				for (yoko = MINISIZE; yoko < waku; yoko++) {		//for文　横列のルール
+					printf("|%3d", col_tbl[yoko] * row_tbl[tate]);  //横*縦の出力
+
+				}
+				printf("|\n");
+
+
+
+			}
+			prt_line(line, waku);
+		}
+	}
+}//main終了
+
+//シャッフル関数中身ここから
+	void shuffle(int hairetu[]) {//関数を宣言　戻り値ないのでvoidを頭につける
+		int kuri;				//forで繰り返す回数を定義
+		int rannsuu;			//乱数入れるところを定義
+		int temp;				//バケツＡ定義
+
+		for (kuri = MINISIZE; kuri < MAXSIZE; kuri++) {
+			rannsuu = rand() % MAXSIZE;//乱数から0～8の余りを求める
+
+			temp = hairetu[kuri]; //バケツAに配列をいれる
+			hairetu[kuri] = hairetu[rannsuu];//空いたバケツAに乱数で求めた配列番号の場所の数をいれる
+			hairetu[rannsuu] = temp;//バケツAにいれたやつを空いた場所に戻す
+
+			
+		}
+	}
+//シャッフル関数中身ここまで
+
+//罫線表示関数ここから
+	void prt_line(char lineStr[], int num) {//関数を宣言
+		int kaisuu;							//forを繰り返す回数を定義
+
+		for (kaisuu = 0; kaisuu <= num; kaisuu++) {//numに受け取った数字の回数分繰り返す
+			printf("%s", lineStr);//文字列を出力
+		}
+		printf("%c\n",lineStr[0]);//文字一つを出力
+	}
+//罫線表示関数ここまで

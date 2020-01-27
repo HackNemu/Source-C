@@ -1,0 +1,269 @@
+//五嶋隆文
+#pragma warning(disable:4996)
+#include<stdio.h>
+#include<stdlib.h>
+#include<time.h>
+#include <Windows.h>
+#include<string.h>
+
+
+#define USE_MEMSET //memset,memcpyの使い分け　入力されると使用される
+
+#define WORLD_W 38	//横の大きさ
+#define WORLD_H 38	//縦の大きさ
+#define F_ARRAY 128	//ファイルを受ける配列の大きさ
+
+
+//プロトタイプ宣言
+void map_ini(char map_ini[WORLD_H][WORLD_W]);								//マップ初期化
+void map_rand(char _rand[WORLD_H][WORLD_W],int seed);						//マップを乱数で初期化
+void map_function(char F_func[WORLD_H][WORLD_W],char *fname);				//マップをファイルで初期化
+void map_dis(char map_dis[WORLD_H][WORLD_W]);								//マップ表示
+void Gchange(char map_copy[WORLD_H][WORLD_W]);								//マップ更新
+int survival_cnt(char map_survival[WORLD_H][WORLD_W], int ypos, int xpos);	//周囲8マスの生存数
+
+
+void main(void) {
+
+	COORD coord;
+	HANDLE hStdout;
+	hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+
+	//変数定義
+	char map[WORLD_H][WORLD_W];// 2次元配列　縦　横　の並び
+	int G_cnt;
+
+	//画面を消す
+	system("cls");
+
+#ifdef USE_MEMSET
+	//0クリアが1行でできる
+	memset(map, 0, sizeof(map));
+
+#else
+	for (repeatY = 0; repeatY < WORLD_H; repeatY++) {
+		for (repeatX = 0; repeatX < WORLD_W; repeatX++) {
+			map[repeatY][repeatX] = 0;
+		}
+	}
+#endif
+
+	//初期化
+	map_ini(map);
+
+	//カーソル制御
+	for (G_cnt = 0; G_cnt < 1000; G_cnt++) {	//1000回ループ
+		coord.X = 0; // Xの位置(横)
+		coord.Y = 1; // Yの位置(縦)
+		SetConsoleCursorPosition(hStdout, coord); // カーソルの移動
+
+		//世代数表示
+		printf("世代数%d", G_cnt);
+		printf("\n");
+
+		//マップ表示
+		map_dis(map);
+
+		//世代交代関数
+		Gchange(map);
+	}
+}
+//main 終了
+
+
+//初期化関数ここから
+void map_ini(char map_ini[WORLD_H][WORLD_W]) {
+
+	//変数定義
+	int repeatY, repeatX;	//縦横のfor　配列で使う変数	
+	char fname[F_ARRAY];		//入力読み込み用の配列
+
+	printf("ファイル名か乱数の種を入力してください:");
+	scanf("%s", fname);
+
+	//1文字目が数字なら乱数を種にする
+	if ((fname[0] >= '0')&&(fname[0] <= '9')){ //入力された文字の頭が"0～9"ならば
+		map_rand(map_ini,atoi(fname));		   //map_rand関数に入力された値を渡す
+	}										   //fnameはchar型なのでint型に変換する
+
+	//それ以外であればファイルを種にする
+	else{										//それ以外ならば
+		map_function(map_ini,fname);			//map_function関数に入力された値を渡す
+	}
+}
+
+//乱数の場合
+void map_rand(char _rand[WORLD_H][WORLD_W],int seed) {
+
+	int repeatY, repeatX;			//縦横のfor　配列で使う変数
+	int amari;						//乱数生成で使う変数
+
+	srand(seed);					//受け取った値で乱数の種を設定
+
+	for (repeatY = 0; repeatY < WORLD_H; repeatY++) {
+		for (repeatX = 0; repeatX < WORLD_W; repeatX++) {
+
+			amari = rand() % 10;	//乱数生成、余りが0～9となる
+
+			//乱数の余りが7以上の場合マップに１を代入
+			if (amari >= 7) {				
+				_rand[repeatY][repeatX] = 1;
+			}
+			//それ以外の場合はマップに0を代入
+			else {
+				_rand[repeatY][repeatX] = 0;
+			}
+		}
+	}
+}
+
+//ファイルの場合
+void map_function(char F_func[WORLD_H][WORLD_W], char *fname) {//キーボードから入力された文字列(fname)にアクセスするためポインターで受ける
+
+	//変数定義
+	int repeatY, repeatX;	//縦横のforで使う変数
+	int len;				//文字列の長さ
+	char buf[F_ARRAY];		//ファイルの中身を受け取る
+	FILE *fp;				//ファイル型構造体
+
+
+	//ファイルを開く
+	fp = fopen(fname, "r");
+
+	//ファイルが開けなかった場合
+	if (fp == NULL) {
+		printf("ファイルを開けませんでした");
+	}
+	//ファイルが開けた場合
+	else {
+
+		repeatY = 0;//Y（縦）を0クリアしマップ縦の最初の行
+
+		while (fgets(buf, F_ARRAY, fp) != NULL) {	//buf配列にファイルの中身を1行ずつ読み込みNULLがでるまでループする
+
+			len = strlen(buf);			//1行の長さを求める
+			if (len > WORLD_W - 1) {	//配列より大きければ
+				len = WORLD_W;			//配列の最大値にする
+			}
+
+			for (repeatX = 0; repeatX < len; repeatX++) {	//buf配列をチェックするループ
+
+				if (buf[repeatX] == '1') {					//1が入っていればマップに1をいれる
+					F_func[repeatY][repeatX] = 1;
+
+				}
+				else {
+					F_func[repeatY][repeatX] = 0;			//それ以外であればマップに0を入れる
+				}
+			}
+			repeatY++;				//縦列を１つ進める
+			if (repeatY > WORLD_H) {//縦列がマップを超えたら
+				break;				//whileループを抜ける
+			}
+		}
+		fclose(fp);					//ファイルクローズ
+	}
+}
+
+//マップ表示関数ここから
+void map_dis(char map_dis[WORLD_H][WORLD_W]) {
+	//変数定義
+	int repeatX;	//横の座標
+	int repeatY;	//縦の座標
+
+		//マップ内のセルが0か1かを判別
+	for (repeatY = 0; repeatY < WORLD_H; repeatY++) {	 //Y軸のループ
+		for (repeatX = 0; repeatX < WORLD_W; repeatX++) {//X軸のループ
+
+				if (map_dis[repeatY][repeatX] == 1) {	//１であれば@を表示
+					printf("@");
+				}
+
+				else {
+					printf(".");						//それ以外であれば.を表示
+				}
+
+			}
+			printf("\n");								//Ｘ(横軸)のループ終了後改行
+		}
+	}
+//マップ表示関数ここまで
+
+//世代交代関数ここから
+void Gchange(char map[WORLD_H][WORLD_W]) {
+	//変数定義
+	int repeatX;						//横の座標
+	int repeatY;						//縦の座標
+	int sur_cnt;						//生存数カウント関数から値をうけとる変数定義
+	char copy_map[WORLD_H][WORLD_W];	//配列をコピーするために同じ大きさの配列を定義{
+
+	
+//マップ配列をコピー
+#ifdef USE_MEMSET
+	memcpy(copy_map, map, sizeof(copy_map));//copy_mapにmapの配列値
+
+#else
+	for (repeatY = 0; repeatY < WORLD_H; repeatY++) {			//Y軸のループ
+		for (repeatX = 0; repeatX < WORLD_W; repeatX++) {		//X軸のループ
+			
+			copy_map[repeatY][repeatX] = map[repeatY][repeatX]; 
+		}
+	}
+#endif
+
+	//世代進める
+	for (repeatY = 0; repeatY < WORLD_H; repeatY++) {
+		for (repeatX = 0; repeatX < WORLD_W; repeatX++) {
+
+			//生存数カウント関数にコピーしたマップを渡す
+			sur_cnt = survival_cnt(copy_map, repeatY, repeatX);
+
+			//周囲のセルを判別後、条件に従ってセルの生死を分ける
+
+			//セルが死んでいて(0)かつ周囲のマスの合計が３の場合
+			if (copy_map[repeatY][repeatX] == 0 && sur_cnt == 3) {	
+				map[repeatY][repeatX] = 1;						//生命誕生
+			}
+			//セルが生きている(1)かつ周辺のマスの合計が1以下または4以上の場合
+			if (copy_map[repeatY][repeatX] == 1 && (sur_cnt >= 4 || sur_cnt <= 1)) {
+				map[repeatY][repeatX] = 0;						//死滅
+			}
+		}
+	}
+}
+//世代交代関数ここまで
+
+//生存数カウント関数ここから
+	int survival_cnt(char map_survival[WORLD_H][WORLD_W], int ypos, int xpos) {
+	
+	//0クリア
+	int sum = 0;
+
+	if (xpos > 0 && ypos > 0) {
+		sum += map_survival[ypos - 1][xpos - 1];	//左上
+	}
+	if(ypos > 0) {
+		sum += map_survival[ypos - 1][xpos];		//上
+	}
+	if (ypos > 0 && xpos<WORLD_W-1) {
+		sum += map_survival[ypos - 1][xpos + 1];	//右上
+	}
+	if (xpos > 0) {
+		sum += map_survival[ypos][xpos - 1];		//左
+	}
+	if (xpos < WORLD_H - 1) {
+		sum += map_survival[ypos][xpos + 1];		//右
+	}
+	if (xpos > 0 && ypos < WORLD_W - 1) {
+		sum += map_survival[ypos + 1][xpos - 1];	//左下
+	}	
+	if (ypos < WORLD_H - 1) {
+		sum += map_survival[ypos + 1][xpos];		//下
+	}
+	if (xpos < WORLD_H-1 &&ypos < WORLD_W-1) {
+		sum += map_survival[ypos + 1][xpos + 1];	//右下
+	}
+	//周囲のマスの生存数
+	return sum;
+}
+//生存数カウント関数ここまで

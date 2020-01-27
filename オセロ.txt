@@ -1,0 +1,848 @@
+#pragma warning(disable:4996)
+#include<stdio.h>
+#include<string.h>
+#include <conio.h>
+#include <Windows.h>
+
+
+//方向指定
+#define DIRECTION_W  0x01  //上
+#define DIRECTION_WD 0x02  //右上
+#define DIRECTION_D  0x04  //右
+#define DIRECTION_SD 0x08  //右下
+#define DIRECTION_S  0x10  //下
+#define DIRECTION_SA 0x20  //左下
+#define DIRECTION_A  0x40  //左
+#define DIRECTION_WA 0x80  //左上
+
+//map関係
+#define MAP_ROW_SIZE 8		//マップの横列
+#define MAP_COLUMN_SIZE 8	//マップの縦列
+#define BLACK 0x01			//黒石
+#define WHITE 0x02			//白石
+#define CURSOR 0x04			//カーソル
+#define CAN_PUT 0x08		//石を置けるマス
+
+//pass関係
+#define FLAG_ON 1			//フラグが立っている状態
+#define FLAG_OFF 0			//フラグが立っていない状態
+
+//エラー関係
+#define ALREADY_STONE 0x01
+
+
+//共通で使いたいもの
+typedef struct {
+	int column_cnt;								  //縦列の現在地
+	int row_cnt;								  //横列の現在地
+	int save_column_cnt;						  //縦列のセーブカウント
+	int save_row_cnt;							  //横列のセーブカウント
+	int black_stone_cnt;						  //黒石の個数
+	int white_stone_cnt;						  //白石の個数
+	
+	char end_flag;								  //ゲーム終了のフラグ
+	char black_pass_flag;						  //黒番のパスフラグ
+	char white_pass_flag;						  //白番のパスフラグ
+	char can_put_flag;							  //置けるマスフラグ
+	char stone_color;							  //石の色(手番) 
+	char err;									  //エラー
+
+
+}coor_cnt;
+
+
+//プロトタイプ宣言
+void key_analysis(char map[MAP_COLUMN_SIZE][MAP_ROW_SIZE], coor_cnt *coor, char key);								//キー入力判定関数																			
+void reversi_direction_analysis(char map[MAP_COLUMN_SIZE][MAP_ROW_SIZE], coor_cnt *coor);							//相手の石がある方向判定関数
+void reversi_direction(char map[MAP_COLUMN_SIZE][MAP_ROW_SIZE], char search_color, char direction, coor_cnt *coor); //石の方向係数判定関数
+void can_put_set(char map[MAP_COLUMN_SIZE][MAP_ROW_SIZE], coor_cnt *coor);											//置けるマスセット関数
+void map_display(char map[MAP_COLUMN_SIZE][MAP_ROW_SIZE], coor_cnt *coor);											//マップ表示関数
+int game_end_analysis(char map[MAP_COLUMN_SIZE][MAP_ROW_SIZE], coor_cnt *coor);										//ゲーム終了判定関数
+void map_line_space(int line_cnt,int space_cnt);																	//ライン表示関数
+
+//石をひっくり返す関数																											
+void reversi_map_stone(char map[MAP_COLUMN_SIZE][MAP_ROW_SIZE], char search_color, int map_loop_size, coor_cnt *map_pos, int column_coefficient, int row_coefficient);
+
+
+
+void main(void) {
+	char map[MAP_COLUMN_SIZE][MAP_ROW_SIZE];//マップ用2次元配列
+	char key;								//文字入力
+
+	//構造体初期化
+	coor_cnt relat_coor;
+	relat_coor.column_cnt = 4;			//カーソル初期値
+	relat_coor.row_cnt = 2;				//カーソル初期値
+	relat_coor.stone_color = BLACK;		//初期値は先手の黒
+	relat_coor.black_stone_cnt = 0;		//黒石の数
+	relat_coor.white_stone_cnt = 0;		//白石の数
+	relat_coor.can_put_flag = FLAG_OFF; //置けるマスがあるか無いかのフラグ＝パスするかしないかのフラグでもある
+
+	//変数初期化
+	key = 0;
+
+	//画面クリア
+	system("cls");
+
+	//初期化
+	memset(map, 0, sizeof(map));
+
+	//画面制御初期化
+	COORD coord;
+	HANDLE hStdout;
+	hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+
+	//デバッグ用
+	for (int y = 0; y < 8; y++) {
+		for (int x = 0; x < 8; x++) {
+			if (y < 4) {
+				map[y][x] = BLACK;
+			}
+			else {
+				map[y][x] = WHITE;
+			}
+		}
+	}
+	
+
+	//初期配置
+	map[3][3] = BLACK;//黒
+	map[4][4] = 0;//黒
+	map[3][4] = WHITE;//白
+	map[4][3] = WHITE;//白
+
+	//初期カーソル
+	map[relat_coor.column_cnt][relat_coor.row_cnt] |= CURSOR;
+
+
+	while (-1) {
+
+		coord.X = 0; // Xの位置(横)
+		coord.Y = 1; // Yの位置(縦)
+		SetConsoleCursorPosition(hStdout, coord); // カーソルの移動
+		
+
+		can_put_set(map, &relat_coor);
+		
+		relat_coor.end_flag = game_end_analysis(map, &relat_coor);
+		map_display(map, &relat_coor);
+		//キー入力のある場合
+
+		//if (kbhit()) {
+
+			key = getch();
+
+			key_analysis(map, &relat_coor, key);
+
+		//}
+		
+		
+
+		
+		
+	}
+}
+
+/**********************************************************************************
+*
+*置けるマスのセット関数　
+*
+*
+*
+*
+*
+*
+*********************************************************************************/
+ void can_put_set(char map[MAP_COLUMN_SIZE][MAP_ROW_SIZE], coor_cnt *coor) {
+
+	char copy_map[MAP_COLUMN_SIZE][MAP_ROW_SIZE]; //コピーしたマップ
+	int save_ini_col;							  //初期座標セーブ
+	int save_ini_row;							  //初期座標セーブ
+	int can_put_cnt;							  //置けるマスの数カウント
+
+
+	can_put_cnt = 0;
+
+	//初期座標セーブ
+	save_ini_col = coor->column_cnt;
+	save_ini_row = coor->row_cnt;
+
+
+	//置けるマス判定
+	//マップ全部を検査する
+	for (int cnt_col = 0; cnt_col < MAP_COLUMN_SIZE; cnt_col++) {
+		for (int cnt_row = 0; cnt_row < MAP_ROW_SIZE; cnt_row++) {
+			//同じ石の配置に対して処理を繰り返したいから毎回コピー
+			memcpy(copy_map, map, sizeof(copy_map));
+
+			//座標とforを同期させる
+			coor->column_cnt = cnt_col;
+			coor->row_cnt = cnt_row;
+
+			//コピーに対してひっくり返す処理
+			reversi_direction_analysis(copy_map, coor);
+
+			if (copy_map[cnt_col][cnt_row] & CAN_PUT) {
+				map[cnt_col][cnt_row] |= CAN_PUT;
+				can_put_cnt++;
+			}
+			
+		}
+	}
+	//printf("置けるマスの数%d", can_put_cnt);
+	//パス判定
+
+	//置けるマスが0個だったら
+	if (can_put_cnt == 0) {
+		if (coor->stone_color&BLACK) {
+			coor->black_pass_flag = FLAG_ON;
+			
+		}
+		else{
+			coor->white_pass_flag = FLAG_ON;
+			
+		}
+		coor->can_put_flag = FLAG_OFF;
+	}
+		
+
+	else {
+		//0個ではないということは、置けるマスがあるという事
+		if (coor->stone_color&BLACK) {
+			coor->black_pass_flag = FLAG_OFF;
+		}
+		else {
+			coor->white_pass_flag = FLAG_OFF;
+		}
+		coor->can_put_flag = FLAG_ON;
+	}
+
+	
+	//動いてしまった座標を初期値に戻す
+	coor->column_cnt = save_ini_col;
+	coor->row_cnt = save_ini_row;
+}
+
+int game_end_analysis(char map[MAP_COLUMN_SIZE][MAP_ROW_SIZE], coor_cnt *coor) {
+	int remaining_cnt; //終わりまでの石の数カウント
+	int black_cnt;		//黒石カウント
+	int white_cnt;		//白石カウント
+	char end_flag;		//ゲーム終了ののフラグ
+
+	remaining_cnt = 0;
+	black_cnt = 0;
+	white_cnt = 0;
+
+
+	//マップ全部チェック
+	for (int cnt_col = 0; cnt_col < MAP_COLUMN_SIZE; cnt_col++) {
+		for (int cnt_row = 0; cnt_row < MAP_ROW_SIZE; cnt_row++) {
+
+			if (map[cnt_col][cnt_row] & BLACK) {
+				black_cnt++;
+			}
+			else if (map[cnt_col][cnt_row] & WHITE) {
+				white_cnt++;
+			}
+		}
+	}
+	//石の数を保存
+	coor->black_stone_cnt = black_cnt;
+	coor->white_stone_cnt = white_cnt;
+
+	//デバッグ用
+	//printf("黒の数%d   白の数%d\n", coor->black_stone_cnt, coor->white_stone_cnt);
+
+	remaining_cnt = 64-(coor->black_stone_cnt + coor->white_stone_cnt);						//全体の数-(黒石の数＋白石の数)＝残りの数
+
+	//ゲーム終了の条件　どちらかの石が0個or残りの置けるマスの数が0or(自分かつ相手が互いにパスフラグが立っている)
+	if (coor->black_stone_cnt == 0 || coor->white_stone_cnt == 0 || remaining_cnt == 0|| (coor->black_pass_flag == FLAG_ON && coor->white_pass_flag == FLAG_ON)){
+		end_flag = FLAG_ON;//ゲーム終了
+	}
+	else {
+		end_flag = FLAG_OFF;//ゲーム続行
+	}
+	return end_flag;
+
+}
+
+void key_analysis(char map[MAP_COLUMN_SIZE][MAP_ROW_SIZE], coor_cnt *coor, char key_in) {
+
+	//置けるマスが無いとき　パスフラグに応じて色を変える　キーボードのいずれかのキーを押すとパスが進む
+	if (coor->can_put_flag == 0) {
+		if (coor->black_pass_flag == FLAG_ON) {
+			coor->stone_color = WHITE;
+			
+		}
+		if (coor->white_pass_flag == FLAG_ON) {
+			coor->stone_color = BLACK;
+		}
+	}
+
+
+	else {
+
+		switch (toupper(key_in)) {
+
+		case 'W':
+		case '8':
+		case 'K':
+			//上へ1進む
+			if (coor->column_cnt > 0) {
+				map[coor->column_cnt - 1][coor->row_cnt] |= CURSOR;
+				map[coor->column_cnt][coor->row_cnt] &= ~CURSOR;	//動かす前の場所のカーソルbitを0
+				coor->column_cnt--;
+			}
+			else {
+				//column_cntが0だったら一番下にする
+				coor->column_cnt = MAP_COLUMN_SIZE - 1;
+				map[coor->column_cnt][coor->row_cnt] |= CURSOR;
+				map[0][coor->row_cnt] &= ~CURSOR;				//動かす前の場所(column=0)のカーソルbitを0
+
+			}
+			break;
+
+		case 'S':
+		case '2':
+		case 'J':
+			//下へ１進む
+			if (coor->column_cnt < MAP_COLUMN_SIZE - 1) {
+				map[coor->column_cnt + 1][coor->row_cnt] |= CURSOR;
+				map[coor->column_cnt][coor->row_cnt] &= ~CURSOR;//動かす前の場所のカーソルbitを0
+				coor->column_cnt++;
+			}
+			//column_cntが8以上だったら一番上にする
+			else {
+				coor->column_cnt = 0;
+				map[coor->column_cnt][coor->row_cnt] |= CURSOR;
+				map[7][coor->row_cnt] &= ~CURSOR;				//動かす前の場所のカーソルbitを0
+
+			}
+			break;
+
+		case 'A':
+		case '4':
+		case 'H':
+			//左へ1進む
+			if (coor->row_cnt > 0) {
+				map[coor->column_cnt][coor->row_cnt - 1] |= CURSOR;
+				map[coor->column_cnt][coor->row_cnt] &= ~CURSOR;//動かす前の場所のカーソルbitを0
+				coor->row_cnt--;
+			}
+			//row_cntが0だったら一番右にする6
+			else {
+				coor->row_cnt = 7;
+				map[coor->column_cnt][coor->row_cnt] |= CURSOR;
+				map[coor->column_cnt][0] &= ~CURSOR;			//動かす前の場所のカーソルbit0
+
+			}
+			break;
+
+		case 'D':
+		case '6':
+		case 'L':
+			//右へ１進む
+			if (coor->row_cnt < MAP_ROW_SIZE - 1) {
+				map[coor->column_cnt][coor->row_cnt + 1] |= CURSOR;
+				map[coor->column_cnt][coor->row_cnt] &= ~CURSOR;//動かす前の場所のカーソルbit0
+				coor->row_cnt++;
+			}
+			//row_cntが8以上だったら0にする
+			else {
+				coor->row_cnt = 0;
+				map[coor->column_cnt][coor->row_cnt] |= CURSOR;
+				map[coor->column_cnt][7] &= ~CURSOR;			//動かす前の場所のカーソルbit0
+
+			}
+			break;
+
+		case ' ':
+
+			//置くマスに石が入っていなければ
+			if (!(map[coor->column_cnt][coor->row_cnt] & BLACK)
+				&& !(map[coor->column_cnt][coor->row_cnt] & WHITE)
+				&&(map[coor->column_cnt][coor->row_cnt]&CAN_PUT)){
+
+				reversi_direction_analysis(map, coor);
+
+				//指定位置に石を置く
+				if (coor->stone_color & BLACK) {
+					map[coor->column_cnt][coor->row_cnt] = BLACK;
+					coor->stone_color = WHITE;
+				}
+				else {
+					map[coor->column_cnt][coor->row_cnt] = WHITE;
+					coor->stone_color = BLACK;
+				}
+				//石が置けたらエラーリセット
+				if (coor->err&ALREADY_STONE) {
+					coor->err &= ~ALREADY_STONE;
+				}
+
+			}
+			else {
+				coor->err |= ALREADY_STONE;
+			}
+			//□を消す
+			for (int cnt_col = 0; cnt_col < MAP_COLUMN_SIZE; cnt_col++) {
+				for (int cnt_row = 0; cnt_row < MAP_ROW_SIZE; cnt_row++) {
+
+					if (map[cnt_col][cnt_row] & CAN_PUT) {
+						map[cnt_col][cnt_row] &= ~CAN_PUT;
+					}
+				}
+			}
+		default:
+
+			break;
+		}
+	}
+}
+
+/**********************************************************************************
+*
+*
+*
+*
+*
+*
+*
+*
+*********************************************************************************/
+
+void reversi_direction_analysis(char map[MAP_COLUMN_SIZE][MAP_ROW_SIZE], coor_cnt *coor) {
+	char direction;				//挟む石の方向
+	char search_color_type;		//探す石の色
+
+	direction = 0;
+
+	//手番と逆の色を求める
+	if (coor->stone_color&BLACK) {
+		search_color_type = WHITE;
+	}
+	else {
+		search_color_type = BLACK;
+	}
+
+	//周囲8マスを見る
+
+	//上
+	if (coor->column_cnt > 0) {
+		if (map[coor->column_cnt - 1][coor->row_cnt] & search_color_type) {
+			direction |= DIRECTION_W;
+		}
+	}
+	//右上
+	if (coor->column_cnt > 0 && coor->row_cnt < MAP_ROW_SIZE - 1) {
+		if (map[coor->column_cnt - 1][coor->row_cnt + 1] & search_color_type) {
+			direction |= DIRECTION_WD;
+		}
+	}
+	//右
+	if (coor->row_cnt < MAP_ROW_SIZE - 1) {
+		if (map[coor->column_cnt][coor->row_cnt + 1] & search_color_type) {
+			direction |= DIRECTION_D;
+		}
+	}
+	//右下
+	if (coor->column_cnt < MAP_COLUMN_SIZE - 1 && coor->row_cnt < MAP_ROW_SIZE - 1) {
+		if (map[coor->column_cnt + 1][coor->row_cnt + 1] & search_color_type) {
+			direction |= DIRECTION_SD;
+		}
+	}
+	//下
+	if (coor->column_cnt < MAP_COLUMN_SIZE - 1) {
+		if (map[coor->column_cnt + 1][coor->row_cnt] & search_color_type) {
+			direction |= DIRECTION_S;
+		}
+	}
+	//左下
+	if (coor->column_cnt < MAP_COLUMN_SIZE - 1 && coor->row_cnt>0) {
+		if (map[coor->column_cnt + 1][coor->row_cnt - 1] & search_color_type) {
+			direction |= DIRECTION_SA;
+		}
+	}
+	//左
+	if (coor->row_cnt > 0) {
+		if (map[coor->column_cnt][coor->row_cnt - 1] & search_color_type) {
+			direction |= DIRECTION_A;
+		}
+	}
+	//左上
+	if (coor->column_cnt > 0 && coor->row_cnt > 0) {
+		if (map[coor->column_cnt - 1][coor->row_cnt - 1] & search_color_type) {
+			direction |= DIRECTION_WA;
+		}
+	}
+
+
+	if (direction != 0) {
+		//上下左右斜めをひっくり返す
+		reversi_direction(map, search_color_type, direction, coor);
+
+	}
+
+}
+
+/**********************************************************************************
+*
+*
+*
+*
+*
+*
+*
+*
+*********************************************************************************/
+
+
+void reversi_direction(char map[MAP_COLUMN_SIZE][MAP_ROW_SIZE], char search_color, char direction, coor_cnt *coor) {
+
+	int diagonal_size_cnt;		//斜めのサイズカウント
+	int	column_coefficient;		//縦列の座標の正負を示す係数
+	int row_coefficient;		//横列の座標の正負を示す係数
+	char one_direction;			//一方向抜き出す
+
+
+	//初期化
+	one_direction = 0;
+	column_coefficient = 0;
+	row_coefficient = 0;
+
+	coor->save_column_cnt = coor->column_cnt;
+	coor->save_row_cnt = coor->row_cnt;
+
+
+	//上に相手の石が見つかった場合
+	if (one_direction = direction & DIRECTION_W) {
+		coor->column_cnt--;			//一つ上を見る
+
+		column_coefficient = (-1);	//係数
+		row_coefficient = 0;
+
+		reversi_map_stone(map, search_color, coor->column_cnt, coor, column_coefficient, row_coefficient);
+
+		//処理が終わったら座標を戻す
+		coor->column_cnt = coor->save_column_cnt;
+		coor->row_cnt = coor->save_row_cnt;
+	}
+
+	//右に相手の石が見つかった場合
+	if (one_direction = direction & DIRECTION_D) {
+		coor->row_cnt++;		//一つ右を見る
+
+		column_coefficient = 0;
+		row_coefficient = 1;		//係数
+
+
+		reversi_map_stone(map, search_color, (MAP_ROW_SIZE - 1) - coor->row_cnt, coor, column_coefficient, row_coefficient);
+
+		//処理が終わったら座標を戻す
+		coor->column_cnt = coor->save_column_cnt;
+		coor->row_cnt = coor->save_row_cnt;
+	}
+
+	//下に相手の石が見つかった場合
+	if (one_direction = direction & DIRECTION_S) {
+		coor->column_cnt++;			//一つ下を見る
+		column_coefficient = 1;	//係数
+		row_coefficient = 0;
+
+		reversi_map_stone(map, search_color, (MAP_COLUMN_SIZE - 1) - coor->column_cnt, coor, column_coefficient, row_coefficient);
+		//処理が終わったら座標を戻す
+		coor->column_cnt = coor->save_column_cnt;
+		coor->row_cnt = coor->save_row_cnt;
+	}
+
+	//左に相手の石が見つかった場合
+	if (one_direction = direction & DIRECTION_A) {
+		coor->row_cnt--;	   //一つ左
+
+		column_coefficient = 0;
+		row_coefficient = (-1);//係数
+
+
+		reversi_map_stone(map, search_color, coor->row_cnt, coor, column_coefficient, row_coefficient);
+
+		//処理が終わったら座標を戻す
+		coor->column_cnt = coor->save_column_cnt;
+		coor->row_cnt = coor->save_row_cnt;
+	}
+
+	//ここから斜め
+
+	//右上に相手の石が見つかった場合
+	if (direction&DIRECTION_WD) {
+		coor->column_cnt--;//一つ上を見る
+		coor->row_cnt++;   //一つ右を見る
+
+		column_coefficient = (-1);
+		row_coefficient = 1;
+
+		//マップ左下が一番大きい
+		if (coor->column_cnt >= (MAP_ROW_SIZE - 1) - coor->row_cnt)
+			diagonal_size_cnt = (MAP_ROW_SIZE - 1) - coor->row_cnt;
+		else
+			diagonal_size_cnt = coor->column_cnt;
+
+		reversi_map_stone(map, search_color, diagonal_size_cnt, coor, column_coefficient, row_coefficient);
+		//処理が終わったら座標を戻す
+		coor->column_cnt = coor->save_column_cnt;
+		coor->row_cnt = coor->save_row_cnt;
+	}
+
+
+	//右下に相手の石が見つかった場合
+	if (direction&DIRECTION_SD) {
+		coor->column_cnt++;//一つ下を見る
+		coor->row_cnt++;   //一つ右を見る
+
+		column_coefficient = 1;
+		row_coefficient = 1;
+
+		//マップ左上が一番大きい=(0.0)が最大値　かつ　縦横比べて小さいほうが先に壁に当たるから優先される
+		if (((MAP_COLUMN_SIZE - 1) - coor->column_cnt) >= ((MAP_ROW_SIZE - 1) - coor->row_cnt))
+			diagonal_size_cnt = (MAP_ROW_SIZE - 1) - coor->row_cnt;
+		else
+			diagonal_size_cnt = (MAP_COLUMN_SIZE - 1) - coor->column_cnt;
+
+		reversi_map_stone(map, search_color, diagonal_size_cnt, coor, column_coefficient, row_coefficient);
+
+		//処理が終わったら座標を戻す
+		coor->column_cnt = coor->save_column_cnt;
+		coor->row_cnt = coor->save_row_cnt;
+	}
+
+
+	//左下に相手の石が見つかった場合
+	if (direction&DIRECTION_SA) {
+		coor->column_cnt++;//一つ下を見る
+		coor->row_cnt--;   //一つ左を見る
+
+		column_coefficient = 1;
+		row_coefficient = (-1);
+
+		//マップ右上が最大値
+		if (((MAP_COLUMN_SIZE - 1) - coor->column_cnt) >= coor->row_cnt)
+			diagonal_size_cnt = coor->row_cnt;
+		else
+			diagonal_size_cnt = (MAP_COLUMN_SIZE - 1) - coor->column_cnt;
+
+		reversi_map_stone(map, search_color, diagonal_size_cnt, coor, column_coefficient, row_coefficient);
+
+		//処理が終わったら座標を戻す
+		coor->column_cnt = coor->save_column_cnt;
+		coor->row_cnt = coor->save_row_cnt;
+	}
+
+	//左上に相手の石が見つかった場合
+	if (direction&DIRECTION_WA) {
+		coor->column_cnt--;//一つ上を見る
+		coor->row_cnt--;   //一つ左を見る
+
+		column_coefficient = (-1);
+		row_coefficient = (-1);
+
+		//マップ右下が最大値
+		if (coor->column_cnt >= coor->row_cnt)
+			diagonal_size_cnt = coor->row_cnt;
+		else
+			diagonal_size_cnt = coor->column_cnt;
+
+		reversi_map_stone(map, search_color, diagonal_size_cnt, coor, column_coefficient, row_coefficient);
+
+		//処理が終わったら座標を戻す
+		coor->column_cnt = coor->save_column_cnt;
+		coor->row_cnt = coor->save_row_cnt;
+	}
+}
+
+
+/**********************************************************************************
+*
+*
+*
+*
+*
+*
+*
+*
+*********************************************************************************/
+
+void reversi_map_stone(char map[MAP_COLUMN_SIZE][MAP_ROW_SIZE], char search_color, int map_loop_size, coor_cnt *map_pos, int column_coefficient, int row_coefficient) {
+	int my_stone_cnt;		//自分の石をひっくり返すfor文用
+	int enemy_stone_cnt;	//相手の石の数
+	int shift_pos;			//マップをずらす数
+
+	enemy_stone_cnt = 0;	//敵の石の数
+
+
+	for (shift_pos = 0; shift_pos <= map_loop_size; shift_pos++) {
+		//相手の色が見つかれば
+		if (map[map_pos->column_cnt + (shift_pos*column_coefficient)][map_pos->row_cnt + (shift_pos*row_coefficient)] & search_color) {
+
+			enemy_stone_cnt++;
+		}
+
+		//自分の色が見つかれば
+		else if (map[map_pos->column_cnt + (shift_pos*column_coefficient)][map_pos->row_cnt + (shift_pos*row_coefficient)] & map_pos->stone_color) {
+			for (my_stone_cnt = 0; my_stone_cnt < enemy_stone_cnt; my_stone_cnt++) {
+				map[map_pos->column_cnt + (my_stone_cnt*column_coefficient)][map_pos->row_cnt + (my_stone_cnt*row_coefficient)] = map_pos->stone_color;	//自分の色を立たせて
+
+				if (enemy_stone_cnt > 0&& !(map[map_pos->save_column_cnt][map_pos->save_row_cnt]&BLACK)&& !(map[map_pos->save_column_cnt][map_pos->save_row_cnt] & WHITE)) {
+					//初期座標のためセーブを使う
+					map[map_pos->save_column_cnt][map_pos->save_row_cnt] = CAN_PUT;
+				}
+			}
+
+		}
+		//それ以外だったら
+		else {
+			break;
+		}
+	}
+}
+
+
+/**********************************************************************************
+*
+*
+*
+*
+*
+*
+*
+*
+*********************************************************************************/
+
+//マップ表示
+void map_display(char map[MAP_COLUMN_SIZE][MAP_ROW_SIZE], coor_cnt *coor) {
+	int row_cnt;
+	int column_cnt;
+
+	char ai_txt[] = { "敵の強さを1,2,3の3段階の中から設定してください:\n" };
+	char space_txt[]= { "                                               " };
+
+
+
+	//int scan_ai_level;			//AIのレベル
+
+
+	column_cnt = 0;
+	printf("\x1b[7m"); //背景を灰色に
+
+	/*//for(int nu)
+	for (int spa_cnt_col = 0; spa_cnt_col < 21; spa_cnt_col++) {
+		for (int spa_cnt_row = 0; spa_cnt_row < (int)strlen(ai_txt) - 1; spa_cnt_row++) {
+			printf(" ");
+		}
+		printf("\n");
+	}
+	*/
+
+
+	//ヘッダー部
+	if (coor->end_flag == FLAG_ON) {
+		if (coor->black_stone_cnt == coor->white_stone_cnt) {
+			printf("ゲーム終了です　引き分け　●%d 〇%d\n", coor->black_stone_cnt, coor->white_stone_cnt);
+
+		}
+		else {
+			coor->black_stone_cnt > coor->white_stone_cnt ? printf("ゲーム終了です　黒の勝ち　●%d　〇%d", coor->black_stone_cnt, coor->white_stone_cnt)
+				: printf("ゲーム終了です　白の勝ち　●%d　〇%d\n", coor->black_stone_cnt, coor->white_stone_cnt);
+		}
+		printf("\n");
+		
+	}
+
+
+	else if (coor->end_flag == FLAG_OFF) {
+		if (coor->stone_color&BLACK) {
+			printf("●の手番です ");
+			map_line_space(0, 10);
+
+			if (coor->black_pass_flag == FLAG_ON) {
+				printf("置ける場所がありません、●の手番はパスされました");
+			}
+			else {
+				printf("                                                ");
+			}
+		}
+		else if (coor->stone_color&WHITE) {
+			printf("〇の手番です ");
+			map_line_space(0, 10);
+
+			if (coor->white_pass_flag == FLAG_ON) {
+				printf("置ける場所がありません、〇の手番はパスされました");
+			}
+			else {
+				printf("                                                ");
+			}
+		}
+	}
+
+
+	printf("\n");
+	printf("   ");
+	printf(" a  b  c  d  e  f  g  h  ");
+	map_line_space(0, 5);
+	map_line_space(MAP_ROW_SIZE,6);
+
+	for (column_cnt = 0; column_cnt < MAP_COLUMN_SIZE; column_cnt++) {
+		printf(" ");					//ライン関数と合わせるためにスペースを印字
+		printf("%2d", column_cnt + 1);
+		for (row_cnt = 0; row_cnt < MAP_ROW_SIZE; row_cnt++) {
+			printf("|");
+
+			if (map[column_cnt][row_cnt] == 0) {
+				printf("  ");
+			}
+			else if (map[column_cnt][row_cnt] & CURSOR) {
+				printf("＠");
+			}
+			else if (map[column_cnt][row_cnt] & BLACK) {
+				printf("●");
+			}
+			else if (map[column_cnt][row_cnt] & WHITE) {
+				printf("〇");
+			}
+			else if (map[column_cnt][row_cnt] & CAN_PUT) {
+				printf("□");
+			}
+
+		}
+		printf("|");
+		map_line_space(0, 5);
+		map_line_space(MAP_ROW_SIZE,6);
+	}
+	printf(" ");
+	printf("%s", ai_txt);
+
+	//scanf("%d",&scan_ai_level);
+
+	if (coor->err&ALREADY_STONE) {
+		printf("置けないマスです\n");
+	}
+	else {
+
+		printf("%s ", space_txt);
+	}
+
+}
+//区切り線の数とspaceの数を渡すとその個数分印字してくれる
+void map_line_space(int line_cnt,int space_cnt) {
+
+	printf(" 　  ");
+	for (int num = 0; num < line_cnt ; num++) {
+		if (num != line_cnt - 1)
+			printf("---");
+		else
+			printf("----");
+	}
+
+	for (int num = 0; num < space_cnt; num++) {
+		printf("   ");
+		
+	}
+	printf("\n");
+}

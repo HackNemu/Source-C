@@ -1,0 +1,183 @@
+#pragma warning(disable:4996)
+#include<stdio.h>
+#include<conio.h>
+#include <string.h>
+
+
+#define BUF_SIZE 30
+/**********************************************
+目的：　ソートのアルゴリズムを理解する
+
+概要：　画面上から数値を入力して配列に格納
+格納された数値をソートして並び替え、その結果を出力する
+
+***********************************************/
+
+//プロトタイプ宣言
+void bubble_sort(int *array);
+void choice_soat(int *array);
+void insert_sort(int *array);
+
+
+void main(void) {
+	int array[BUF_SIZE];
+	int array_copy[BUF_SIZE];
+	int array_number;
+	int sort_num; 
+
+	memset(array, 0, sizeof(array));
+	printf("ソートの種類を選んでください　1：バブルソート　2：選択ソート　3：挿入ソート");
+	scanf("%d", &sort_num);
+	printf("\n");
+	for (int num = 0; num < BUF_SIZE; num++) {
+
+		printf("#%d番目の数値を入力してください\n", num + 1);
+
+		scanf("%d", &array_number);
+
+		array[num] = array_number;	//入力された値を配列へ代入
+
+	}
+
+
+	memcpy(array_copy, array, sizeof(array));
+
+	if (sort_num == 1) {
+		bubble_sort(array);
+		printf("[バブルソート]");
+	}
+	else if (sort_num == 2) {
+		choice_soat(array);
+		printf("[選択ソート]");
+	}
+	else if (sort_num == 3) {
+		insert_sort(array);
+		printf("[挿入ソート]");
+	}
+
+	
+	printf("\n");
+	printf("配列に格納された数値\n");
+
+	for (int num = 0; num < BUF_SIZE; num++) {
+		printf("%d.", array_copy[num]);
+	}
+	printf("\n");
+	printf("ソート結果");
+
+	for (int num = 0; num < BUF_SIZE; num++) {
+		printf("%d.", array[num]);
+	}
+}
+/********************************************
+//バブルソート
+//隣接する要素同士の比較 末尾から比較して　末尾側が小さければ入れ替える
+//末尾から先頭に向かって比較を行う
+//先頭から順番に確定していく
+//比較する要素は隣り合っている
+**********************************************/
+
+void bubble_sort(int *array) {
+	int cnt_array; //配列の末尾
+	int cnt_num;
+	int temp;			//数字入れ替えのための変数
+	int decision_cnt;	//確定した分のカウント
+
+	cnt_array = 0;
+	cnt_num = 0;
+	decision_cnt = 0;
+
+
+	for (int cnt_y = 0 + decision_cnt; cnt_y < BUF_SIZE; cnt_y++) {
+		for (cnt_num = 0; cnt_num < BUF_SIZE; cnt_num++) {
+			//末尾<末尾の一つ前
+			if (array[BUF_SIZE - (1 + cnt_num)] < array[BUF_SIZE - (2 + cnt_num)]) {
+				temp = array[BUF_SIZE - (2 + cnt_num)];
+				array[BUF_SIZE - (2 + cnt_num)] = array[BUF_SIZE - (1 + cnt_num)];
+				array[BUF_SIZE - (1 + cnt_num)] = temp;
+			}
+
+		}
+
+		decision_cnt++;
+	}
+}
+/********************************************
+//選択ソート
+//まず最小値あるいは最大値を探す、見つかれば先頭要素と交換する
+//次に先頭から2番目に小さいあるいは大きいものを要素と交換するという処理を
+  末尾まで繰り返す
+//最小値を見つける
+//一つ基準を決めて他の要素と比べる
+//他の要素と比べて一番小さければ配列の先頭から数えて確定していない場所に
+  要素を代入する
+**********************************************/
+
+
+void choice_soat(int *array) {
+
+	int temp_mini;		//見つけた最小値をいれる
+	//int temp_max;		//見つけた最大値をいれる 最大値でやらないから今回はいらない
+	int temp;			//入れ替えのための保存場所
+	int array_num_temp; //最小値を持ってきた要素番号
+
+	int num;			//ループ用
+	int cnt;			//ループ用
+
+	//判定用に初期化 -1の理由は配列の要素として-1が使われることが無いから
+	array_num_temp = -1;
+	
+	//同じ処理を配列の大きさの分、繰り返すループ
+	for (num = 0; num < BUF_SIZE;num++) {
+
+		temp_mini = array[num];
+
+		//配列を見るループ　0+numの理由は確定した場所は処理に入れたくないから		
+		for (cnt = 0+num; cnt < BUF_SIZE; cnt++) {
+			if (temp_mini > array[cnt]) {
+				//最小値をいれる
+				temp_mini = array[cnt];
+				//一番小さい要素の番号をいれておく
+				array_num_temp = cnt;
+			}
+		}
+
+		if (array_num_temp != -1);
+		//入れ替え
+		temp= array[num];
+		array[num] = temp_mini;
+		array[array_num_temp] = temp;
+
+		array_num_temp = -1; //代入したら初期化
+	}
+}
+
+
+/********************************************
+//挿入ソート
+並んだ要素のうち最初の2つを取り出し比較し、望みの順序に並べる。
+次に、3つ目の値を整列した2つと順に比較し、適切な位置に挿入する。
+4つ目以降も同様にして、
+整列済みの列の適切な位置に一つずつ挿入していき、全体のソートを行う。
+**********************************************/
+
+void insert_sort(int *array) {
+	int array_cnt;
+	int temp;
+	int decision_cnt; //確定カウント
+	
+
+	for (decision_cnt = 0; decision_cnt < BUF_SIZE; decision_cnt++) {
+		//最初の二つを取り出し比較する
+		for (array_cnt = 0; array_cnt < BUF_SIZE - 1; array_cnt++) {
+
+			//先頭に近い方が大きかったら
+			if (array[array_cnt] > array[array_cnt + 1]) {
+				//入れ替える
+				temp = array[array_cnt];
+				array[array_cnt] = array[array_cnt + 1];
+				array[array_cnt + 1] = temp;
+			}
+		}
+	}
+}

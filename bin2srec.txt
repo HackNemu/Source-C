@@ -1,0 +1,418 @@
+#pragma warning(disable:4996)
+#include<stdio.h>
+#include<string.h>
+#include<stdlib.h>
+
+#define BUF_SIZE 2000			//binbufサイズ
+#define TXT_SIZE 1024			//txtbufサイズ
+#define FLAG_ON 1
+#define FLAG_OFF 0
+#define INPUT_FILE_ERR 0x01		//入力ファイルパスエラー
+#define OUTPUT_FILE_ERR 0x02	//出力ファイルパスエラー
+#define FILE_NUM_ERR 0x04		//ファイル個数エラー
+#define STYPE_ERR 0x08			//Sレコードタイプエラー
+#define ETC_ERR 0x80			//その他のエラー
+#define INVERSION_TWO_BYTE 0xff //チェックサム反転
+#define ADDRLES_BYTE_TWO 2		//アドレスバイト数
+#define ADDRLES_BYTE_THREE 3	//アドレスバイト数
+#define ADDRLES_BYTE_FOUR 4		//アドレスバイト数
+
+
+//構造体定義
+typedef struct {
+	char write_flag;				//ファイル上書きフラグ 1
+	char usage_flag;				//使い方表示のフラグ 2
+	char *input_filename;			//入力ファイルネーム 3
+	char *output_filename;			//出力ファイルネーム 4
+	unsigned char *s0txt;			//s0レコードのテキスト文字配列 5
+	unsigned char *z_opt_file;		//zオプションで指定されたファイルの読み込み配列 6
+	unsigned char *z_opt_filename;  //zオプションのファイルネーム 7
+
+	int load_addres;		//ロードアドレス 8
+	int addr_cnt;			//アドレスカウント=行数 9
+	int data_size;			//1行のデータの長さ 10
+	int srec_type;			//sレコードタイプ 11
+
+	FILE *fp_r;//読み込みファイルポインタ 13
+	FILE *fp_w;//書き込みファイルポインタ 14 
+	FILE *fp_z;//ZOPTファイル読み込みポインタ 15
+} opt_s;
+
+
+char opt_analysis(char argc, char *argv[], opt_s *opt);
+void bin2srec(unsigned char *buf, opt_s *opt);
+
+
+int main(int argc, char* argv[]) {
+	unsigned char buf[BUF_SIZE];			//テキストファイルを入れる
+	char result;							//エラコード返り値
+
+	//構造体の初期化
+	opt_s opts;
+	opts.usage_flag = FLAG_OFF;
+	opts.write_flag = FLAG_OFF;
+	opts.data_size = 32;		//default 32
+	opts.load_addres = 0x0000;	//default 0x0000
+	opts.srec_type = 1;			//default 1
+	opts.addr_cnt = 0;
+	opts.input_filename = 0;
+	opts.output_filename = 0;
+	opts.z_opt_file = 0;
+	opts.z_opt_filename = 0;
+	opts.s0txt = 0;
+	
+	//ファイルポインタ初期化
+	opts.fp_w = 0;
+	opts.fp_r = 0;
+	opts.fp_z = 0;
+
+	//0クリア
+	result = 0;
+
+	//オプション処理
+	result = opt_analysis(argc, argv, &opts);
+
+
+	//エラーがなければ　または　使い方表示のフラグが立ってなければ
+	if (result != 0 || opts.usage_flag == FLAG_ON) {
+		//if (result&INPUT_FILE_ERR)
+			//fprintf(stderr, "INPUT_FILEが複数あります\n");
+		if (result&STYPE_ERR)
+			fprintf(stderr, "Stypeエラーです");
+		if (result&FILE_NUM_ERR)
+			fprintf(stderr, "FILEが複数あります\n");
+		if (result&ETC_ERR)
+			fprintf(stderr, "予期せぬエラーです\n");
+
+		fprintf(stderr, "C:¥Users¥m - hoshi > bin2srec / ?\n");
+		fprintf(stderr, "Syntax : bin2srec[<opts>][<inpath>][<outpath>][<opts>]\n");
+		fprintf(stderr, "Function : convert file to S record format\n");
+		fprintf(stderr, "Options :\n");
+		fprintf(stderr, "/ a[=]<hex> ロードアドレスの指定(省略の場合は0000\n");
+		fprintf(stderr, "/ r 出力ファイルが存在するとき、強制的に上書きをする。\n");
+		fprintf(stderr, "/ s[=]<n> Sレコードタイプの指定(デフォルトは = 1)\n");
+		fprintf(stderr, "/ d[=] < n> 1行のデータ長(デフォルトは = 32)\n");
+		fprintf(stderr, "/ t[=]<text> S0レコードに入れるテキスト文字\n");
+		fprintf(stderr, "/ z[[=]<file>] コマンドライン引数(パラメータ)をファイルから読み込む(デフォルト = stdin)\n");
+		fprintf(stderr, "/ ? 使い方の表示\n");
+	}
+	else {
+		//ファイル読み込み終わるまで回す データ長で1行ずつ読む　wordではなくbyte 変数名を使う意味と同じものにする
+		//上に重要なものを持ってくる
+		//テストデータのＪＰＧをjapg 11kのやつ
+		//.hファイルとしてファイルを分ける システムの時は不等号記号　ダブルコーテーションでくくるとローカル　ファイルで分割　コンパイルが早い
+		//全部足す
+
+		
+		if (opts.output_filename != 0) {						//出力パスがあれば
+			opts.fp_w = fopen(opts.output_filename, "r");
+
+			if (opts.fp_w != NULL) {							//ファイルが存在していれば
+				fclose(opts.fp_w);
+
+				if (opts.write_flag != FLAG_ON) {				//強制上書きでなければ
+					fprintf(stderr, "ファイルが既に存在しています");
+					exit(1);									//既存のファイルを壊してしまうため強制終了
+				}
+			}
+
+			opts.fp_w = fopen(opts.output_filename, "w");		//ファイルを書き込みでオープン
+			if (opts.fp_w == NULL) {
+				("ファイルが開けませんでした\n");
+				exit(2);
+			}
+		}
+		else {//default 標準出力
+			opts.fp_w = stdout;
+		}
+
+		if (opts.z_opt_filename != 0) {							//z_optファイル名があれば
+			opts.fp_z = fopen(opts.z_opt_filename, "r");
+
+			if (opts.fp_z != NULL) {
+
+				while (fgets(opts.z_opt_file,BUF_SIZE, opts.fp_z) != NULL) {//fpzに読まれたファイル名の中身をz_opt_fileへ1行ずつ入れる
+					opts.fp_r = fopen(opts.z_opt_file, "rb");
+					if (opts.fp_r != NULL) {								//ファイルが見つかれば
+						bin2srec(buf, &opts);								//読み込んだ1行のファイル名を処理		
+					}
+					else {
+						fprintf(stderr, "%sのファイルが見つかりません\n", opts.z_opt_file);
+						exit(1);//強制終了
+					}
+					fclose(opts.fp_r);//疑問点　一度閉じないと別のファイル読めない？
+				}
+			}
+			else {
+				fprintf(stderr,"/zで指定されたファイルが開けませんでした\n");
+				exit(1);
+			}
+		}
+		else if (opts.input_filename != 0) {								//読み込むファイルが見つかれば
+			opts.fp_r = fopen(opts.input_filename, "rb");
+			if (opts.fp_r != NULL) {
+				bin2srec(buf, &opts);
+			}
+			else {
+				fprintf(stderr, "%sのファイルが見つかりません\n",opts.input_filename);
+				exit(1);//強制終了
+			}
+			if (opts.fp_r != NULL)
+				fclose(opts.fp_r);											//本当はmain一番下に書きたい上で一度閉じているからそれがどうなるか次第
+		}
+		else {//デフォルト
+			opts.fp_r = stdin;
+		}
+
+	}
+
+	if (opts.fp_w != NULL)
+		fclose(opts.fp_w);//開いていたら閉じる
+
+	if (opts.fp_z != NULL)
+		fclose(opts.fp_z);//開いていたら閉じる
+}
+
+//バイナリーからSレコード変換
+void bin2srec(unsigned char *buf, opt_s *opt) {
+	int addr_len;			//アドレスの長さ
+	int print_addr_len;		//表示するアドレスの桁数
+	int record_len;			//レコード長
+	int addr_srec;			//アドレス
+	int byte_cnt;			//バイト読み込み数
+	int s0data_len;			//S0データ長
+	char end_stype;			//終了Ｓタイプ
+	unsigned char check_sum;//チェックサム
+
+	//0クリア
+	addr_srec = 0;
+	check_sum = 0;
+	byte_cnt = 0;
+
+	//配列初期化
+	memset(buf, 0, opt->data_size);
+
+
+	//S0部　最初の行に書く
+	if (opt->addr_cnt == 0) {
+
+		//Stype
+		fprintf(opt->fp_w, "S0");
+
+		//data長
+		if (opt->s0txt != 0) {//txtが入っていれば
+			s0data_len = (int)strlen(opt->s0txt);
+		}
+		else {
+			s0data_len = 0;
+		}
+		//レコード長=(dataの長さ+アドレスの長さ＋チェックサムの長さ) 単位はバイト
+		addr_len = ADDRLES_BYTE_TWO;				   //S0のアドレスの長さは固定
+		record_len = s0data_len + addr_len + 1;
+		fprintf(opt->fp_w, "%02X", record_len);
+
+		check_sum += record_len;					   //チェックサム+=レコード長
+
+		//アドレス初期値(実行開始アドレス)
+		addr_srec = opt->load_addres;
+		fprintf(opt->fp_w, "%04X", addr_srec);
+
+		check_sum += addr_srec;						   //チェックサム+=アドレス
+
+		//データ
+		for (int numx = 0; numx < s0data_len; numx++) {//テキストの長さ分
+			fprintf(opt->fp_w, "%02X", opt->s0txt[numx]);
+			check_sum += opt->s0txt[numx];			  //チェックサム+=binデータ
+		}
+
+		//チェックサム
+		fprintf(opt->fp_w, "%02X", (~(check_sum))&0xff);
+		fprintf(opt->fp_w, "\n");
+
+		check_sum = 0;								 //印字後チェックサムリセット
+	}
+
+	//アドレスの長さ
+	switch (opt->srec_type) {
+	case 1:
+		addr_len = ADDRLES_BYTE_TWO;
+		end_stype = 9;
+		print_addr_len = ADDRLES_BYTE_TWO * 2;
+		break;
+
+	case 2:
+		addr_len = ADDRLES_BYTE_THREE;
+		end_stype = 8;
+		print_addr_len = ADDRLES_BYTE_THREE * 2;
+		break;
+
+	case 3:
+		addr_len = ADDRLES_BYTE_FOUR;
+		end_stype = 7;
+		print_addr_len = ADDRLES_BYTE_FOUR * 2;
+		break;
+
+	default:
+		fprintf(stderr, "サポートしていないSレコードの形式です");
+		exit(3);
+		break;
+	}
+
+	//s0が終わったら
+	fseek(opt->fp_r, opt->load_addres, SEEK_SET);//オフセット指定
+	while ((byte_cnt = fread(buf, 1, opt->data_size, opt->fp_r)) > 0) {//=優先度低い
+
+		//Stype
+		fprintf(opt->fp_w, "S%d", opt->srec_type);
+		//レコード長
+		record_len = byte_cnt + addr_len + 1;
+		fprintf(opt->fp_w, "%02X", record_len);
+
+		check_sum += record_len;				//チェックサム+=レコード長
+
+		//アドレス(初期値+(data_size*addr_cnt(行数))
+		addr_srec = opt->load_addres + (opt->data_size*opt->addr_cnt);
+		fprintf(opt->fp_w, "%0*X", print_addr_len, addr_srec);
+
+		for (int num = 0; num < addr_len; num++) {
+			check_sum += addr_srec >> (8 * num);					//チェックサム+=アドレス
+		}
+		//データ
+		for (int numx = 0; numx < byte_cnt; numx++) {
+			fprintf(opt->fp_w, "%02X", buf[numx]);
+			check_sum += buf[numx];				//チェックサム+=binデータ
+		}
+
+		//チェックサム
+		fprintf(opt->fp_w, "%02X", (~(check_sum))&0xff);
+
+		opt->addr_cnt++;						//1行印字　アドレスカウント進める
+		fprintf(opt->fp_w, "\n");
+
+		check_sum = 0;							//印字後チェックサムリセット
+	}
+
+
+	//終了コードの印字(終了コードなのでデータ長は0)
+	addr_srec = opt->load_addres;//初期値に戻す
+	record_len = 0 + addr_len + 1;//レコード長
+
+	//Stype
+	fprintf(opt->fp_w, "S%d", end_stype);
+	//レコード長
+	fprintf(opt->fp_w, "%02X", record_len);
+	check_sum += record_len;									//チェックサム+=レコード長
+	//アドレス
+	fprintf(opt->fp_w, "%0*X", print_addr_len, addr_srec);
+	
+	for (int num = 0; num < addr_len; num++) {
+		check_sum += addr_srec >> (8 * num);					//チェックサム+=アドレス
+	}
+
+	//チェックサム
+	fprintf(opt->fp_w, "%02X", (~(check_sum))&0xff);
+}
+
+//オプション解析
+char opt_analysis(char argc, char *argv[], opt_s *opt) {
+	int cnt_ana;
+	char err;
+
+	err = 0;//初期化
+
+	for (cnt_ana = 1; cnt_ana < argc; cnt_ana++) {
+		if (*argv[cnt_ana] == '/') {//1文字目が/なら
+			switch (*(argv[cnt_ana] + 1)) {
+
+				//出力ファイルの強制上書き
+			case 'r':
+			case 'R':
+				opt->write_flag = FLAG_ON;
+				break;
+
+				//使い方の表示フラグ
+			case '?':
+				opt->usage_flag = FLAG_ON;
+				break;
+
+				//ロードアドレス
+			case 'a':
+			case 'A':
+				if (*(argv[cnt_ana] + 2) == '=') {
+					opt->load_addres = strtol(argv[cnt_ana] + 3, NULL, 16);
+				}
+				else {
+					opt->load_addres = strtol(argv[cnt_ana] + 2, NULL, 16);
+				}
+				break;
+
+				//S0レコードのテキスト文字
+			case 't':
+			case 'T':
+				if (*(argv[cnt_ana] + 2) == '=') {
+					opt->s0txt = argv[cnt_ana] + 3;
+				}
+				else {
+					opt->s0txt = argv[cnt_ana] + 2;
+				}
+				break;
+
+				//1行のデータ長
+			case 'd':
+			case 'D':
+				if (*(argv[cnt_ana] + 2) == '=') {
+					opt->data_size = strtol(argv[cnt_ana] + 3, NULL, 10);
+				}
+				else {
+					opt->data_size = strtol(argv[cnt_ana] + 2, NULL, 10);
+				}
+				break;
+
+				//Sレコードタイプの指定
+			case 's':
+			case 'S':
+				//Sレコードタイプが1～3の範囲内であれば
+				if ((*(argv[cnt_ana] + 2)) > '0' && (*(argv[cnt_ana] + 2)) < '4' ||
+					(*(argv[cnt_ana] + 3)) > '0' && (*(argv[cnt_ana] + 3)) < '4') {
+					if (*(argv[cnt_ana] + 2) == '=') {
+						opt->srec_type = strtol(argv[cnt_ana] + 3, NULL, 10);
+					}
+					else {
+						opt->srec_type = strtol(argv[cnt_ana] + 2, NULL, 10);
+					}
+				}
+				else {
+					err |= STYPE_ERR;
+				}
+				break;
+
+				//zオプション　あとでやる　飛ばす
+			case 'z':
+			case 'Z':
+				if (*(argv[cnt_ana] + 2) == '=') {
+					opt->z_opt_filename = argv[cnt_ana] + 3;
+				}
+				else {
+					opt->z_opt_filename = argv[cnt_ana] + 2;
+				}
+				break;
+
+			default:
+				err |= ETC_ERR;
+			}
+		}
+		else {
+			if (opt->input_filename == 0) {
+				opt->input_filename = argv[cnt_ana];
+			}
+			else if (opt->output_filename == 0) {
+				opt->output_filename = argv[cnt_ana];
+			}
+			else {
+				err |= FILE_NUM_ERR;
+			}
+
+		}
+	}
+	return err;
+}

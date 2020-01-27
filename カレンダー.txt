@@ -1,0 +1,340 @@
+#pragma warning(disable:4996)
+#include<stdio.h>
+#include<string.h>
+
+enum W_LIST { SUN, MON, TUE, WED, THU, FRI, SAT, N_WEEK };
+enum M_LIST { JAN, FEB, MAR, APR, MAY, JUN, JUL, AUG, SEP, OCT, NOV, DEC, N_MONTH };
+
+
+#define Y_LINE 6		//行の長さ
+#define SPRING_EQ 0		//春分の日
+#define FALL_EQ 1		//秋分の日
+#define MAX_HOLI_TBL 4	//祝日リストの横列の数
+#define LOW_COL -2		//表示部の行の始まり
+#define BLANK_CH 3		//カレンダー同士の隙間
+
+#define BIRTH 26
+#define BIRTH_MARK 0x80 // 誕生日マーク
+#define TRANS_MARK 0x40 // 振替祝日マーク
+#define HOLI_MARK 0x20 // 祝日マーク
+
+
+
+
+int calendar_sum(int year);
+int check_uruu(int year);
+int calendar_system(char calendar_year[N_MONTH][Y_LINE][N_WEEK], int of_the_week, int year);
+void calendar_show(char calendar_year[N_MONTH][Y_LINE][N_WEEK], int week, int column);
+void spring_fall_day(char holidays[N_MONTH][MAX_HOLI_TBL], int year);
+void put_ch(char ch_set, int num);
+
+
+void main(void) {
+
+	int year, week, column;		//西暦 求める年の1月1日の曜日 列の指定
+	int cnt_years, multi_year;  //年数表示のカウント　複数年
+	char calendar_year[N_MONTH][Y_LINE][N_WEEK]; //カレンダーの配列
+
+	//初期化
+	year = 0;
+	week = 0;
+	column = 0;
+
+	//データ入力
+	while (1) {
+
+		do {
+			printf("西暦?");
+			scanf("%d", &year);
+		} while (year < 1);
+		do {
+			printf("何年分?");
+			scanf("%d", &multi_year);
+		} while (multi_year < 1);
+		do {
+			printf("列数を指定、最大は3列");
+			scanf("%d", &column);
+			printf("\n");
+		} while (column < 1 || column>3);
+
+		//データ処理
+		cnt_years = 0;
+		week = calendar_sum(year);//最初の年
+
+		//欲しい年数分表示させるループ
+		while (cnt_years < multi_year) { 
+			memset(calendar_year, 0, sizeof(calendar_year));//0クリア
+
+			week = calendar_system(calendar_year, week, year+cnt_years);//カレンダー処理　返り値は次の年の１月１日
+
+			calendar_show(calendar_year, year+cnt_years, column);		//画面に表示される
+
+			cnt_years++;//１枚表示したので年数のカウントを進める
+		}
+	}
+}
+/**********************************************************************
+*int calendar_sum(int year)
+*
+*機能：入力した西暦の１月１日の曜日を求める
+*入力：year				画面に入力した年数
+*出力：
+*
+*戻り値：入力した西暦の１月１日の曜日
+**********************************************************************/
+
+//カレンダー数値関数
+int calendar_sum(int year) {
+
+	int sumday, year_minus; //累積日数と西暦を1つ引いた値をいれる
+
+	sumday = 0;
+
+	//月のリスト
+	char month_list[N_MONTH] = { 31,28,31,30,31,30,31,31,30,31,30,31 };
+
+	//累積日数(前年の12月31日まで)を求める
+	year_minus = year - 1;
+	sumday = year_minus * 365 + year_minus / 4 - year_minus / 100 + year_minus / 400;
+
+	sumday = sumday + 1;    //1月1日の曜日を知るため+1
+	sumday = (sumday) % 7;  //曜日を求める
+
+	return sumday;			//求める年の1日の曜日					
+}
+/*********************************************************************************************
+*int calendar_system(char calendar_year[N_MONTH][Y_LINE][N_WEEK], int of_the_week, int year)
+*
+*機能：カレンダーの３次元配列に数値を入れる
+*
+*入力：calendar_year[N_MONTH][Y_LINE][N_WEEK]	カレンダーをいれる３次元配列
+*      of_the_week								1月1日の曜日
+*	   year										入力した年数											
+*
+*出力：
+*
+*戻り値：次の年の１月１日の曜日
+*********************************************************************************************/
+
+//カレンダー処理関数
+int calendar_system(char calendar_year[N_MONTH][Y_LINE][N_WEEK], int of_the_week, int year) {
+
+	int month, one_week;			//forループ用変数
+	int one_day;					//入力する日にち
+	int public_holiday;				//祝日のリストを回す
+	int cnt_mon;					//月曜日カウント
+
+	char month_list[N_MONTH] = { 31,28,31,30,31,30,31,31,30,31,30,31 };//月のリスト
+
+	//祝日のリスト
+	char holidays[N_MONTH][MAX_HOLI_TBL] = {
+		{1,-2,0,0},		//  1月、元旦、成人の日
+		{11,23,0,0},	//  2月、建国記念日、令和天皇誕生日
+		{0,0,0,0},		//  3月、春分の日
+		{29,0,0,0},		//  4月、昭和の日
+		{3,4,5,0},		//  5月、憲法記念日、みどりの日、子供の日
+		{ 0,0,0,0},		//  6月、なし
+		{-3,0,0,0},		//  7月、海の日
+		{11,0,0,0},		//  8月、山の日
+		{-3,0,0,0},		//  9月、敬老の日、秋分の日
+		{-2,0,0,0},		// 10月、体育の日
+		{3,23,0,0},		// 11月、文化の日、勤労感謝の日
+		{0,0,0,0}		// 12月、なし(23日の平成天皇誕生日はなし)
+	};
+
+	//閏年チェック
+	if (check_uruu(year) == 1) {
+		month_list[FEB] = 29;
+	}
+	//春分　秋分チェック
+	spring_fall_day(holidays, year);
+
+	//1月から12月までのループ
+	for (month = JAN; month <= DEC; month++) {
+
+		cnt_mon = 0;		//月曜日カウント
+		one_week = 0;		//縦軸
+		one_day = 1;		//日にち
+		public_holiday = 0; //祝日カウント
+
+		//1日から求める月の最終日までのループ
+		while (one_day <= month_list[month]) {
+			calendar_year[month][one_week][of_the_week] |= one_day;
+
+			if (of_the_week == MON)
+				cnt_mon++;//happymondayのために月曜日数える
+
+			// リストが0でないとき日にちがリストの値と一致すれば
+			if (holidays[month][public_holiday] != 0) {
+				if (holidays[month][public_holiday] == one_day) {
+					calendar_year[month][one_week][of_the_week] |= HOLI_MARK;//祝日マークのビットを立てる
+
+					//祝日を分ける条件
+					//祝日が日曜または振休のとき
+					if (of_the_week == SUN || calendar_year[month][one_week][of_the_week] & TRANS_MARK) {
+						calendar_year[month][one_week][of_the_week + 1] |= TRANS_MARK;	//1日ずらして振休とする
+					}
+
+					//水曜日以降の祝日で1日前が平日で2日前が祝日だった場合
+					if (of_the_week >= WED && !(calendar_year[month][one_week][of_the_week - 1] & HOLI_MARK) &&
+						calendar_year[month][one_week][of_the_week - 2] & HOLI_MARK) {
+
+						calendar_year[month][one_week][of_the_week - 1] |= HOLI_MARK;	//1日前を祝日にする
+					}
+					public_holiday++;													 //処理が終わったので祝日リストを進める
+				}
+
+				if (holidays[month][public_holiday] < 0) {					
+					if (of_the_week == MON &&									 //happymondayの処理なので月曜日	
+						holidays[month][public_holiday] * (-1) == cnt_mon) {	 //リストを正負反転して一致する値があれば
+						calendar_year[month][one_week][of_the_week] |= HOLI_MARK;//祝日マークを入れる
+						public_holiday++;										 //処理が終わったので祝日リストを進める
+					}
+				}
+			}
+			//日と曜日進める
+			one_day++;
+			of_the_week++;
+
+			if (of_the_week > SAT) {	//もし土曜日を超えたら
+				of_the_week = SUN;		//日曜日に戻す
+				one_week++;				//行を下げる
+			}
+		}
+	}
+	return of_the_week;
+}
+
+/*********************************************************************************************
+*void calendar_show(char calendar_year[N_MONTH][Y_LINE][N_WEEK], int year, int column)
+*
+*機能：３次元配列に入っているカレンダーを出力する
+*
+*入力：calendar_year[N_MONTH][Y_LINE][N_WEEK]	カレンダーをいれる３次元配列
+*	   year										入力した年数
+*	   column									入力した列数
+
+*出力：列数に応じた万年カレンダー
+*
+*戻り値：
+*********************************************************************************************/
+
+
+//マップ表示関数
+void calendar_show(char calendar_year[N_MONTH][Y_LINE][N_WEEK], int year, int column) {
+	int month, week, day;
+	int col_loop;			//表示のループに使う
+	char tempbuf[150];		//文字列を読み取る
+	char space_string= ' '; //カレンダー間に表示するスペース
+
+	month = 0;
+	while (month <= DEC) {//月のループ
+
+		for (week = LOW_COL; week < Y_LINE; week++) { //行のループ
+			for (col_loop = 0; col_loop < column; col_loop++) {//列のループ
+
+				if (week == LOW_COL) {
+					sprintf(tempbuf," %d年%3d月", year, (month + 1 + col_loop));//カレンダーの年月の文字を配列にいれる
+					printf("%s", tempbuf);//カレンダーの年月表示
+					put_ch(space_string, (4 * N_WEEK) - strlen(tempbuf));
+					
+				}
+				else if (week == (LOW_COL + 1)) {
+					printf(" 日  月  火  水  木  金  土 ");//カレンダーの曜日表示
+				}
+				else {
+					for (day = SUN; day <= SAT; day++) {   //曜日のループ
+
+						//上位３ビットのマークの有無を判断して表示
+						if (calendar_year[month + col_loop][week][day] & HOLI_MARK) {
+							printf("*");
+						}
+						else if (calendar_year[month + col_loop][week][day] & TRANS_MARK) {
+							printf("+");
+						}
+						else {
+							printf(" ");
+						}
+
+						//日にち表示
+						if (calendar_year[month + col_loop][week][day] != 0) {
+							printf("%2d ", calendar_year[month + col_loop][week][day] & 0x1f);
+						}
+						else {
+							printf("   ");		//0を4つの空白に
+						}
+					}
+				}
+				put_ch(space_string, BLANK_CH); //カレンダー横の空白
+			}
+			printf("\n"); //1列書いたら改行 
+		}
+		printf("\n\n");	//1か月書いたら改行
+
+		//入力した列数に応じて月カウントをすすめる
+		month += col_loop;
+	}
+}
+
+//閏年チェック関数
+int check_uruu(int year) {
+	int uruu = 0;
+
+	if (year % 4 == 0)	//4で割り切れる時　1を返す　
+		uruu = 1;
+
+	if (year % 100 == 0) //100で割り切れる時　0を返す
+		uruu = 0;
+
+	if (year % 400 == 0) //400で割り切れるとき　1を返す
+		uruu = 1;
+
+	return uruu;
+}
+
+//秋分の日、春分の日計算関数
+void spring_fall_day(char holidays[N_MONTH][MAX_HOLI_TBL], int year) {
+
+	int yy;
+	int springEQ; // 求める春分の日
+	int fallEQ; // 求める秋分の日
+
+	yy = year;
+
+	if (yy <= 1899) {
+		springEQ = (int)(19.8277 + 0.242194 * (yy - 1980) - ((yy - 1983) / 4));
+		fallEQ = (int)(22.2588 + 0.242194 * (yy - 1980) - ((yy - 1983) / 4));
+	}
+	else if (yy >= 1900 && yy <= 1979) {
+		springEQ = (int)(20.8357 + 0.242194 * (yy - 1980) - ((yy - 1983) / 4));
+		fallEQ = (int)(23.2588 + 0.242194 * (yy - 1980) - ((yy - 1983) / 4));
+	}
+	else if (yy >= 1980 && yy <= 2099) {
+		springEQ = (int)(20.8431 + 0.242194 * (yy - 1980) - ((yy - 1980) / 4));
+		fallEQ = (int)(23.2488 + 0.242194 * (yy - 1980) - ((yy - 1980) / 4));
+	}
+	else if (yy >= 2100) {
+		springEQ = (int)(21.851 + 0.242194 * (yy - 1980) - ((yy - 1980) / 4));
+		fallEQ = (int)(24.2488 + 0.242194 * (yy - 1980) - ((yy - 1980) / 4));
+	}
+	holidays[MAR][SPRING_EQ] = springEQ; // 春分の日を入れる
+	holidays[SEP][FALL_EQ] = fallEQ; // 秋分の日を入れる
+}
+
+//区切り表示関数
+void put_ch(char ch_set,int num) {
+	int repeat;
+	
+	//numで受け取った回数分 ch_setを表示する
+	for (repeat = 0; repeat < num; repeat++) {
+		printf("%c",ch_set );
+	}
+}
+
+
+
+
+
+
+
+
